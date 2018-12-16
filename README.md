@@ -161,6 +161,52 @@ mysql> SELECT ST_Latitude(@meguro), ST_Longitude(@meguro);
 ```
 SRID=4326は世界測地系1984(WGS84)を指します。
 
+### 数値 -> Point
+ここまで説明をせず書いていましたが、数値からGeometry型に変換することもできます。しかし、用意されているのは
+
+- `ST_GeomFromText()`: Text -> Geometry
+- `ST_GeomFromGeoJSON()`: GeoJSON -> Geometry
+- `ST_GeomFromWKB()`: WKB(WellKnowTextをBinary化したもの) -> Geometry
+
+の3種類ですが、バイナリであるWKBを人間が記述したり入力するのは難しいのでよく使う文脈でいえば上の2種類を多用することになりそうです。GeoJSONに関する詳しい説明は省きますが、以下のように利用します。
+
+```
+mysql> SELECT ST_AsText(ST_GeomFromText('POINT(35.628611 139.708056)', 0));
++--------------------------------------------------------------+
+| ST_AsText(ST_GeomFromText('POINT(35.628611 139.708056)', 0)) |
++--------------------------------------------------------------+
+| POINT(35.628611 139.708056)                                  |
++--------------------------------------------------------------+
+1 row in set (0.00 sec)
+```
+
+```
+mysql> SET @json = '
+  {
+    "type":"Point",
+    "coordinates": [139.708056, 35.628611],
+    "crs": {
+      "type":"name",
+        "properties": {
+          "name":"EPSG:4326"
+        }
+    }
+  }
+';
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SELECT ST_AsText(ST_GeomFromGeoJSON(@json));
++--------------------------------------+
+| ST_AsText(ST_GeomFromGeoJSON(@json)) |
++--------------------------------------+
+| POINT(35.628611 139.708056)          |
++--------------------------------------+
+1 row in set (0.00 sec)
+```
+`ST_GeomFromText()`は第2引数にSRIDを指定できます(デフォルトは0)が、`ST_GeomFromGeoJSON()`はGeoJson中にSRIDを持たせる必要がある点に注意してください。
+
+
+
 
 ## 2点の距離をとる
 ## 領域を表現する
