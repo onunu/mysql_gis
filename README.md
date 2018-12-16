@@ -60,12 +60,12 @@ MySQLでポイントデータを扱う際は、実際にはGeoHash値として�
 ```
 mysql> CREATE TABLE five_colors (id BIGINT(20), name VARCHAR(100), latlon POINT, geohash VARCHAR(30), PRIMARY KEY(id)) ENGINE=InnoDB CHARSET=utf8;
 
-mysql> INSERT INTO five_colors VALUES
-(1, "目黒不動", ST_GeomFromText('POINT(35.628611 139.708056)'),  "xn76ejfxz6nn"),
-(2, "目白不動", ST_GeomFromText('POINT(35.716100 139.712460)'),  "xn775jzt278g"),
-(3, "目赤不動", ST_GeomFromText('POINT(35.726296 139.7507333)'), "xn77hpg2u072"),
-(4, "目青不動", ST_GeomFromText('POINT(35.6447853 139.665668)'), "xn76f0vmvvw0"),
-(5, "目黄不動", ST_GeomFromText('POINT(35.644765 139.5978171)'), "xn76b8ujbcuc");
+mysql> INSERT INTO five_colors_new VALUES
+(1, "目黒不動", ST_GeomFromText('POINT(35.628611 139.708056)', 4326),  "xn76ejfxz6nn"),
+(2, "目白不動", ST_GeomFromText('POINT(35.716100 139.712460)', 4326),  "xn775jzt278g"),
+(3, "目赤不動", ST_GeomFromText('POINT(35.726296 139.7507333)', 4326), "xn77hpg2u072"),
+(4, "目青不動", ST_GeomFromText('POINT(35.6447853 139.665668)', 4326), "xn76f0vmvvw0"),
+(5, "目黄不動", ST_GeomFromText('POINT(35.644765 139.5978171)', 4326), "xn76b8ujbcuc");
 ```
 早速それっぽいのが出てきました。`POINT`型を含むGeometry系のデータは先述の通りバイナリなので、INSERTを行う際にも変換が必要です。同時に取り出す時も関数を使う必要があります。
 
@@ -205,14 +205,197 @@ mysql> SELECT ST_AsText(ST_GeomFromGeoJSON(@json));
 ```
 `ST_GeomFromText()`は第2引数にSRIDを指定できます(デフォルトは0)が、`ST_GeomFromGeoJSON()`はGeoJson中にSRIDを持たせる必要がある点に注意してください。
 
+## GISデータを有効活用する
+GISデータを有効活用するための関数についていくつか説明します。
+### 2点間の距離を取る
+2点間の距離を取るには、`ST_Distance()`関数を使います。
+```
+mysql> SELECT p.name AS start, s.name AS end,  ST_Distance(p.latlon, s.latlon) FROM five_colors AS p CROSS JOIN five_colors AS s WHERE p.id < s.id;
++--------------+--------------+---------------------------------+
+| start        | end          | ST_Distance(p.latlon, s.latlon) |
++--------------+--------------+---------------------------------+
+| 目黒不動      | 目白不動       |             0.08759977361271878 |
+| 目黒不動      | 目赤不動       |             0.10660070900463282 |
+| 目黒不動      | 目青不動       |            0.045369048088857965 |
+| 目黒不動      | 目黄不動       |             0.11141618728538899 |
+| 目白不動      | 目赤不動       |             0.03960812932834764 |
+| 目白不動      | 目青不動       |              0.0852952384373689 |
+| 目白不動      | 目黄不動       |             0.13502472642227886 |
+| 目赤不動      | 目青不動       |             0.11781383398641554 |
+| 目赤不動      | 目黄不動       |             0.17329358956247118 |
+| 目青不動      | 目黄不動       |             0.06785090303675664 |
++--------------+--------------+---------------------------------+
+10 rows in set (0.00 sec)
+```
 
+単位が謎ですよね。これはSRIDが未指定(0)のためにユークリッド距離を返しているからです。現実世界に準じて球面距離を返して欲しいので、SRIDを4326に指定してデータを再構築してみます。
 
+```
+mysql> CREATE TABLE five_colors_new (id BIGINT(20), name VARCHAR(100), latlon POINT, geohash VARCHAR(30), PRIMARY KEY(id)) ENGINE=InnoDB CHARSET=utf8;
+Query OK, 0 rows affected, 1 warning (0.09 sec)
+mysql> INSERT INTO five_colors_new VALUES
+    -> (1, "目黒不動", ST_GeomFromText('POINT(35.628611 139.708056)', 4326),  "xn76ejfxz6nn"),
+    -> (2, "目白不動", ST_GeomFromText('POINT(35.716100 139.712460)', 4326),  "xn775jzt278g"),
+    -> (3, "目赤不動", ST_GeomFromText('POINT(35.726296 139.7507333)', 4326), "xn77hpg2u072"),
+    -> (4, "目青不動", ST_GeomFromText('POINT(35.6447853 139.665668)', 4326), "xn76f0vmvvw0"),
+    -> (5, "目黄不動", ST_GeomFromText('POINT(35.644765 139.5978171)', 4326), "xn76b8ujbcuc");
+Query OK, 5 rows affected (0.08 sec)
+Records: 5  Duplicates: 0  Warnings: 0
 
-## 2点の距離をとる
-## 領域を表現する
+mysql> SELECT p.name AS start, s.name AS end, ST_Distance(p.latlon, s.latlon) FROM five_colors_new AS p CROSS JOIN five_colors_new AS s WHERE p.id < s.id;
++--------------+--------------+---------------------------------+
+| start        | end          | ST_Distance(p.latlon, s.latlon) |
++--------------+--------------+---------------------------------+
+| 目黒不動      | 目白不動       |               9715.421270161714 |
+| 目黒不動      | 目赤不動       |              11506.541551462107 |
+| 目黒不動      | 目青不動       |               4238.018883326555 |
+| 目黒不動      | 目黄不動       |              10144.522112266772 |
+| 目白不動      | 目赤不動       |               3643.068109360428 |
+| 目白不動      | 目青不動       |               8975.104665872295 |
+| 目白不動      | 目黄不動       |              13051.864958700196 |
+| 目赤不動      | 目青不動       |              11877.888501149639 |
+| 目赤不動      | 目黄不動       |              16535.834616701708 |
+| 目青不動      | 目黄不動       |               6145.005204768069 |
++--------------+--------------+---------------------------------+
+10 rows in set (0.00 sec)
+```
+
+ご覧のように数字が大きく変わりました。単位はmになっています。
+
+### 領域を表現する
+GISデータで領域を表現するには、`POLYGON`型を使います。
+サンプルデータとして、代々木公園はおよそ以下のGeoJSONで表現できます。
+
+```json
+{
+  "type": "Polygon",
+  "coordinates": [
+    [
+      [139.70324277877808,35.680184793238894],
+      [139.70096826553345,35.67988848691441],
+      [139.69813585281372,35.680899409847584],
+      [139.6959900856018,35.67985362727446],
+      [139.69446659088135,35.679539889],
+      [139.69343662261963,35.676803349816815],
+      [139.69204187393188,35.67483368013732],
+      [139.69135522842407,35.672445608339494],
+      [139.6909260749817,35.66988314526595],
+      [139.69274997711182,35.66674532334593],
+      [139.69356536865234,35.66634437054716],
+      [139.6940803527832,35.66583881849588],
+      [139.6977710723877,35.66725086965674],
+      [139.69757795333862,35.66834911440362],
+      [139.70030307769775,35.668593166739974],
+      [139.7023630142212,35.66951707239733],
+      [139.70369338989258,35.67443276796514],
+      [139.70401525497437,35.67603640457032],
+      [139.70324277877808,35.680184793238894]
+    ]
+  ],
+  "crs": {
+    "type":"name",
+      "properties": {
+        "name":"EPSG:4326"
+      }
+  }
+}
+```
+
+GeometryとしてMySQLに読み込むには、
+
+```
+mysql> SET @json = '{{ 上のJSON}}';
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SET @yoyogi_park = ST_GeomFromGeoJSON(@json);
+Query OK, 0 rows affected (0.00 sec)
+```
+
+とすればOKです。
+
+### 領域に他の点や領域が含まれているかを判断する
+`ST_Contains()`を使うと領域、点が(完全に)含まれているかどうかを検証できます。
+第1引数の中に第2引数の指定する領域または座標が含まれるかどうかを0,1で返します。
+
+```
+mysql> SELECT ST_Contains(@yoyogi_park, latlon) FROM five_colors_new;
++-----------------------------------+
+| ST_Contains(@yoyogi_park, latlon) |
++-----------------------------------+
+|                                 0 |
+|                                 0 |
+|                                 0 |
+|                                 0 |
+|                                 0 |
++-----------------------------------+
+5 rows in set (0.00 sec)
+```
+```
+mysql> SET @meiji_shrine = ST_GeomFromText('POINT(35.6763976 139.6971372)', 4326);
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SELECT ST_Contains(@yoyogi_park, @meiji_shrine);
++------------------------------------------+
+| ST_Contains(@yoyogi_park, @meiji_shrine) |
++------------------------------------------+
+|                                        1 |
++------------------------------------------+
+1 row in set (0.00 sec)
+```
+
+他にも`ST_Centroid()`、`ST_Crosses()`など様々な便利な関数が用意されています。
+5.7よりも前と8では関数の種類、数に大きな違いがありますので、GIS機能を利用する際には必ず最新のリファレンスを参照するようにしてください。
 
 # 五色不動巡りを最適化する
-要は巡回サラリーマン問題です。不動尊は5つあるので、`5! = 120` 通りの経路が存在します。
+要は巡回サラリーマン問題です。不動尊は5つあるので、`5! = 120` 通りの経路が存在します(順序を真逆にしたものがあるので有効なのはこのさらに半分)。
+
+かっこよく書きたかったのですが、ちょっとワンクエリでやるのは無理でした。結局脳筋な解き方をしています。
+あと今更ですが、江戸の五色不動といった場合、目黄不動は最勝寺と永久寺の2箇所をさすそうです。今回は最勝寺だけを目黄不動として扱い、問題を簡略化していますので、ご了承ください。
+
+```
+WITH t AS (
+  SELECT
+    f.name AS first,
+    s.name AS second,
+    t.name AS third,
+    fo.name AS fourth,
+    fi.name AS fifth,
+    ST_Distance(f.latlon, s.latlon) + ST_Distance(s.latlon, t.latlon)
+    + ST_Distance(t.latlon, fo.latlon) + ST_Distance(fo.latlon, fi.latlon) AS distance
+  FROM
+    five_colors_new AS f
+    CROSS JOIN five_colors_new AS s
+    CROSS JOIN five_colors_new AS t
+    CROSS JOIN five_colors_new AS fo
+    CROSS JOIN five_colors_new AS fi
+  WHERE
+    f.id != s.id
+    AND f.id != t.id
+    AND f.id != fo.id
+    AND f.id != fi.id
+    AND s.id != t.id
+    AND s.id != fo.id
+    AND s.id != fi.id
+    AND t.id != fo.id
+    AND t.id != fi.id
+    AND fo.id != fi.id
+)
+SELECT * FROM t ORDER BY distance LIMIT 2
+;
+```
+返ってきた結果が以下のようになります。
+
+```
++--------------+--------------+--------------+--------------+--------------+--------------------+
+| first        | second       | third        | fourth       | fifth        | distance           |
++--------------+--------------+--------------+--------------+--------------+--------------------+
+| 目黄不動     | 目青不動     | 目黒不動     | 目白不動     | 目赤不動     | 23741.513467616765 |
+| 目赤不動     | 目白不動     | 目黒不動     | 目青不動     | 目黄不動     |  23741.51346761677 |
++--------------+--------------+--------------+--------------+--------------+--------------------+
+2 rows in set (0.01 sec)
+```
+
+どうやら江戸の五色不動巡りをする場合、目黄不動から始め、目青不動、目黒不動、目白不動、目赤不動と回るか、その逆が効率がよいようです。参考になれば幸いです。あと当然ですが、交通手段とかは考慮していませんので、悪しからず。
 
 # おわりに
 MySQLの強化されたGIS機能に関してざっくりと解説しました。今回説明できたことはごくわずかで、便利かつ高精度な関数、機能が他にも多数あります。もし興味をお持ちであれば公式のリファレンスを参照されることを強くおすすめします。拙い説明でしたが読んでくださりありがとうございました。
